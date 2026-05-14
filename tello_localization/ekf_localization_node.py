@@ -100,7 +100,8 @@ class EKFLocalizationNode(Node):
     def predict_timer(self):
 
         # fake control input
-        u = np.array([0.1, 0.0, 0.01, 0.0]).reshape(4,1)
+        #u = np.array([0.1, 0.0, 0.01, 0.0]).reshape(4,1)
+        u = np.array([0.0, 0.0, 0.0, 0.0]).reshape(4,1)
         self.predict(u)
 
         self.publish_pose()

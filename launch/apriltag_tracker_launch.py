@@ -33,6 +33,14 @@ def generate_launch_description():
                output='screen'),
 
           # ====================================================
+          # AprilTag Marker Visualization
+          # ====================================================
+          Node(package=package_name,
+               executable='apriltag_visualizer',
+               name='apriltag_visualizer',
+               output='screen'),
+
+          # ====================================================
           # RViz
           # ====================================================
           Node(package='rviz2',
