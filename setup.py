@@ -14,7 +14,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
         (os.path.join('share', package_name, 'rviz'), glob('rviz/*.rviz')),
         (os.path.join('share', package_name, 'resource'), ['resource/tello_localization']),
-        ('share/tello_localization/map', ['map/apriltag_map.yaml']),
+        (os.path.join('share', package_name, 'map'), ['map/apriltag_map.yaml']),
     ],
     install_requires=['setuptools', 'pupil-apriltags', 'opencv-python'],
     zip_safe=True,
@@ -28,7 +28,7 @@ setup(
             'apriltag_detector_node = tello_localization.apriltag_detector_node:main',
             'ekf_localization_node = tello_localization.ekf_localization_node:main',
             'tag_tf_broadcaster = tello_localization.tag_tf_broadcaster:main',
-            'apriltag_visualizer = tello_localization.apriltag_visualizer:main',
+            #'apriltag_visualizer = tello_localization.apriltag_visualizer:main',
         ],
     },
 )

@@ -13,8 +13,10 @@ class TagTFBroadcaster(Node):
     def __init__(self):
         super().__init__('tag_tf_broadcaster')
         self.broadcaster = StaticTransformBroadcaster(self)
-        package_share = get_package_share_directory('tello_ekf_localization')
-        yaml_path = os.path.join(package_share, 'config', 'tag_map.yaml')
+        
+        # 修正為正確的 package_name 和路徑
+        package_share = get_package_share_directory('tello_localization')
+        yaml_path = os.path.join(package_share, 'map', 'apriltag_map.yaml')
         with open(yaml_path, 'r') as f:
             data = yaml.safe_load(f)
 
@@ -24,9 +26,9 @@ class TagTFBroadcaster(Node):
             t.header.stamp = self.get_clock().now().to_msg()
             t.header.frame_id = 'map'
             t.child_frame_id = f'tag_{tag_id}'
-            t.transform.translation.x = tag['x']
-            t.transform.translation.y = tag['y']
-            t.transform.translation.z = tag['z']
+            t.transform.translation.x = tag.get('x', 0.0)
+            t.transform.translation.y = tag.get('y', 0.0)
+            t.transform.translation.z = tag.get('z', 0.0)
 
             q = R.from_euler('xyz', [0,0,0]).as_quat()
 

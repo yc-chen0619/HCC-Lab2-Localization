@@ -1,5 +1,7 @@
 import rclpy
 from rclpy.node import Node
+import os
+from ament_index_python.packages import get_package_share_directory
 
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseArray
@@ -42,6 +44,16 @@ class AprilTagDetectorNode(Node):
         self.tag_size = 0.16
         self.camera_params = [self.fx, self.fy, self.cx, self.cy]
 
+        # 讀取 Tag Map YAML 檔
+        package_share = get_package_share_directory('tello_localization')
+        yaml_path = os.path.join(package_share, 'map', 'apriltag_map.yaml')
+        try:
+            with open(yaml_path, 'r') as f:
+                self.tag_pose_dict = yaml.safe_load(f)['apriltags']
+        except Exception as e:
+            self.get_logger().error(f"Failed to load yaml: {e}")
+            self.tag_pose_dict = {}
+
     def get_tag_world_pose(self, tag_id):
         """
         Returns a 4x4 transformation matrix T_tag_in_world from YAML.
@@ -53,6 +65,12 @@ class AprilTagDetectorNode(Node):
 
         pos = tag['position']
         rpy = tag['orientation_rpy']
+        rot = R.from_euler('xyz', rpy).as_matrix()
+
+        # 根據你的 yaml 格式提取位置與尤拉角 (假設 yaml 有 x,y,z, roll,pitch,yaw)
+        # 如果你的 yaml 中沒有旋轉，這裡預設全為 0
+        pos = [tag.get('x', 0.0), tag.get('y', 0.0), tag.get('z', 0.0)]
+        rpy = [tag.get('roll', 0.0), tag.get('pitch', 0.0), tag.get('yaw', 0.0)]
         rot = R.from_euler('xyz', rpy).as_matrix()
 
         T = np.eye(4)
@@ -74,48 +92,54 @@ class AprilTagDetectorNode(Node):
         marker_array = MarkerArray()
 
         for idx, tag in enumerate(tags):
-            t = tag.pose_t.flatten()
-            rot = tag.pose_R
+            # 1. 取得 Tag 在相機座標系的變換矩陣 T_c_t (T_camera_tag)
+            T_c_t = np.eye(4)
+            T_c_t[:3, :3] = tag.pose_R
+            T_c_t[:3, 3] = tag.pose_t.flatten()
 
-            euler = R.from_matrix(rot).as_euler('xyz')
+            # 2. 從你寫好的 function 取得該 Tag 在 Map 下的絕對座標 T_w_t (T_world_tag)
+            T_w_t = self.get_tag_world_pose(tag.tag_id)
+            if T_w_t is None:
+                # 如果讀到不在 yaml 裡的 tag，就跳過不處理
+                continue 
 
+            # 3. 核心修正：計算無人機(相機)在 Map 下的位置: T_w_c = T_w_t * inv(T_c_t)
+            T_w_c = T_w_t @ np.linalg.inv(T_c_t)
+
+            # 4. 建立 Pose，這才是「無人機」的真實世界位置
             pose = Pose()
-            pose.position.x = float(t[0])
-            pose.position.y = float(t[1])
-            pose.position.z = float(t[2])
-
-            q = R.from_matrix(rot).as_quat()
-
+            pose.position.x = float(T_w_c[0, 3])
+            pose.position.y = float(T_w_c[1, 3])
+            pose.position.z = float(T_w_c[2, 3])
+            # 將旋轉矩陣轉為四元數
+            q = R.from_matrix(T_w_c[:3, :3]).as_quat()
             pose.orientation.x = q[0]
             pose.orientation.y = q[1]
             pose.orientation.z = q[2]
             pose.orientation.w = q[3]
             pose_array.poses.append(pose)
 
-            marker = Marker()
 
+            # 5. Marker 也要用更新後的無人機 pose 來顯示
+            marker = Marker()
             marker.header.frame_id = 'map'
             marker.header.stamp = self.get_clock().now().to_msg()
-
             marker.id = idx
             marker.type = Marker.CUBE
             marker.action = Marker.ADD
-
-            marker.pose = pose
-
+            marker.pose = pose # 使用轉換過後的正確 Pose
             marker.scale.x = 0.16
             marker.scale.y = 0.16
             marker.scale.z = 0.01
-
             marker.color.a = 1.0
             marker.color.r = 0.0
             marker.color.g = 1.0
             marker.color.b = 0.0
-
             marker_array.markers.append(marker)
 
-        self.pose_pub.publish(pose_array)
-        self.marker_pub.publish(marker_array)
+        if len(pose_array.poses) > 0:
+            self.pose_pub.publish(pose_array)
+            self.marker_pub.publish(marker_array)
 
 
 def main(args=None):

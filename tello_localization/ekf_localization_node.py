@@ -4,13 +4,10 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseArray
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
-
 from nav_msgs.msg import Path
 
 import tf2_ros
-
 import numpy as np
-import yaml
 
 from scipy.spatial.transform import Rotation as R
 
@@ -88,6 +85,12 @@ class EKFLocalizationNode(Node):
         H = np.eye(6)
         z_pred = self.mu
         y = z - z_pred
+
+        # 解決角度 wrapping (例如 359度 - 1度 應該是 -2度 而不是 358度)
+        y[3,0] = (y[3,0] + np.pi) % (2 * np.pi) - np.pi
+        y[4,0] = (y[4,0] + np.pi) % (2 * np.pi) - np.pi
+        y[5,0] = (y[5,0] + np.pi) % (2 * np.pi) - np.pi
+
         S = H @ self.Sigma @ H.T + self.Q
         K = self.Sigma @ H.T @ np.linalg.inv(S)
         self.mu = self.mu + K @ y
@@ -111,4 +114,60 @@ class EKFLocalizationNode(Node):
                 pose.orientation.y,
                 pose.orientation.z,
                 pose.orientation.w]
-        euler = R.from_quat(quat)
+        
+        r = R.from_quat(quat)
+        euler = r.as_euler('xyz') # roll, pitch, yaw
+        z = np.array([
+            [pose.position.x],
+            [pose.position.y],
+            [pose.position.z],
+            [euler[0]], # roll
+            [euler[2]], # yaw (根據你的定義是在 index 4)
+            [euler[1]]  # pitch (根據你的定義是在 index 5)
+        ])
+        self.update(z)
+
+    def publish_pose(self):
+        now = self.get_clock().now().to_msg()
+
+        # 建立 PoseStamped 訊息
+        msg = PoseStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = now
+        
+        msg.pose.position.x = float(self.mu[0,0])
+        msg.pose.position.y = float(self.mu[1,0])
+        msg.pose.position.z = float(self.mu[2,0])
+        # 將尤拉角轉回四元數發布
+        # 再次提醒：注意你的 index 4 是 yaw, 5 是 pitch
+        q = R.from_euler('xyz', [self.mu[3,0], self.mu[5,0], self.mu[4,0]]).as_quat()
+        msg.pose.orientation.x = q[0]
+        msg.pose.orientation.y = q[1]
+        msg.pose.orientation.z = q[2]
+        msg.pose.orientation.w = q[3]
+        self.pose_pub.publish(msg)
+        
+        # Publish Path
+        self.path_msg.poses.append(msg)
+        self.path_pub.publish(self.path_msg)
+
+        # Broadcast TF (map -> base_link)
+        t = TransformStamped()
+        t.header.stamp = now
+        t.header.frame_id = 'map'
+        t.child_frame_id = 'base_link'
+        t.transform.translation.x = float(self.mu[0,0])
+        t.transform.translation.y = float(self.mu[1,0])
+        t.transform.translation.z = float(self.mu[2,0])
+        t.transform.rotation = msg.pose.orientation
+        self.tf_broadcaster.sendTransform(t)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = EKFLocalizationNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
