@@ -49,7 +49,10 @@ class AprilTagDetectorNode(Node):
         yaml_path = os.path.join(package_share, 'map', 'apriltag_map.yaml')
         try:
             with open(yaml_path, 'r') as f:
-                self.tag_pose_dict = yaml.safe_load(f)['apriltags']
+                # 1. YAML 的 key 是 'tags'，而且它是一個 List
+                yaml_data = yaml.safe_load(f)['tags']
+                # 2. 將 List 轉成以 tag_id 為 key 的 Dictionary，方便後續搜尋
+                self.tag_pose_dict = {tag['id']: tag for tag in yaml_data}
         except Exception as e:
             self.get_logger().error(f"Failed to load yaml: {e}")
             self.tag_pose_dict = {}
@@ -65,12 +68,6 @@ class AprilTagDetectorNode(Node):
 
         pos = tag['position']
         rpy = tag['orientation_rpy']
-        rot = R.from_euler('xyz', rpy).as_matrix()
-
-        # 根據你的 yaml 格式提取位置與尤拉角 (假設 yaml 有 x,y,z, roll,pitch,yaw)
-        # 如果你的 yaml 中沒有旋轉，這裡預設全為 0
-        pos = [tag.get('x', 0.0), tag.get('y', 0.0), tag.get('z', 0.0)]
-        rpy = [tag.get('roll', 0.0), tag.get('pitch', 0.0), tag.get('yaw', 0.0)]
         rot = R.from_euler('xyz', rpy).as_matrix()
 
         T = np.eye(4)

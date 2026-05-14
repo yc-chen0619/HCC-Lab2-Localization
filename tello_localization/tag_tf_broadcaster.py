@@ -21,16 +21,17 @@ class TagTFBroadcaster(Node):
             data = yaml.safe_load(f)
 
         transforms = []
-        for tag_id, tag in data['apriltags'].items():
+        for tag in data['tags']:
+            tag_id = tag['id']
             t = TransformStamped()
             t.header.stamp = self.get_clock().now().to_msg()
             t.header.frame_id = 'map'
             t.child_frame_id = f'tag_{tag_id}'
-            t.transform.translation.x = tag.get('x', 0.0)
-            t.transform.translation.y = tag.get('y', 0.0)
-            t.transform.translation.z = tag.get('z', 0.0)
+            t.transform.translation.x = float(tag['position'][0])
+            t.transform.translation.y = float(tag['position'][1])
+            t.transform.translation.z = float(tag['position'][2])
 
-            q = R.from_euler('xyz', [0,0,0]).as_quat()
+            q = R.from_euler('xyz', tag['orientation_rpy']).as_quat()
 
             t.transform.rotation.x = q[0]
             t.transform.rotation.y = q[1]
@@ -41,6 +42,7 @@ class TagTFBroadcaster(Node):
 
         self.broadcaster.sendTransform(transforms)
         self.get_logger().info('Published AprilTag static TFs')
+
 
 class RobotTFBroadcaster:
     def __init__(self, node):
