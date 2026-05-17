@@ -37,11 +37,11 @@ class AprilTagDetectorNode(Node):
                                  debug=0)
         self.get_logger().info("Image subscriber with pupil_apriltags initialized.")
 
-        self.fx = 920.0
-        self.fy = 920.0
-        self.cx = 480.0
-        self.cy = 360.0
-        self.tag_size = 0.16
+        self.fx = 907.45
+        self.fy = 906.73
+        self.cx = 470.05
+        self.cy = 369.95
+        self.tag_size = 2.5
         self.camera_params = [self.fx, self.fy, self.cx, self.cy]
 
         # 讀取 Tag Map YAML 檔
