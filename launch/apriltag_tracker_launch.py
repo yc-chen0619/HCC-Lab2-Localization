@@ -33,12 +33,16 @@ def generate_launch_description():
                output='screen'),
 
           # ====================================================
-          # AprilTag Marker Visualization
+          # 新增：把 camera_frame 綁定在 base_link 上面
           # ====================================================
-          Node(package=package_name,
-               executable='apriltag_visualizer',
-               name='apriltag_visualizer',
-               output='screen'),
+          Node(
+               package='tf2_ros',
+               executable='static_transform_publisher',
+               name='camera_base_link_tf',
+               arguments=['0', '0', '0', '-1.5708', '0', '-1.5708', 'base_link', 'camera_frame']
+               # 注意：Tello/Webcam的相機座標系與無人機本體座標系通常差了旋轉，
+               # 這裡的 -1.5708 是 -90度，用來對齊光學座標(Z朝前)與機體座標(X朝前)。
+          ),
 
           # ====================================================
           # RViz

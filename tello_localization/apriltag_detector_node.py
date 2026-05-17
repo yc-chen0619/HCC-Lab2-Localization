@@ -19,6 +19,15 @@ from pupil_apriltags import Detector
 from scipy.spatial.transform import Rotation as R
 
 
+def CameraIntrinsics():
+    FX = 907.45
+    FY = 906.73
+    CX = 470.05
+    CY = 369.95
+    TagSize = 2.5
+    return FX, FY, CX, CY, TagSize
+
+
 class AprilTagDetectorNode(Node):
 
     def __init__(self):
@@ -37,11 +46,12 @@ class AprilTagDetectorNode(Node):
                                  debug=0)
         self.get_logger().info("Image subscriber with pupil_apriltags initialized.")
 
-        self.fx = 907.45
-        self.fy = 906.73
-        self.cx = 470.05
-        self.cy = 369.95
-        self.tag_size = 2.5
+        camera_intrinsic = CameraIntrinsics()
+        self.fx = camera_intrinsic[0]
+        self.fy = camera_intrinsic[1]
+        self.cx = camera_intrinsic[2]
+        self.cy = camera_intrinsic[3]
+        self.tag_size = camera_intrinsic[4]
         self.camera_params = [self.fx, self.fy, self.cx, self.cy]
 
         # 讀取 Tag Map YAML 檔

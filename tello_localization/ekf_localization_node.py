@@ -118,13 +118,18 @@ class EKFLocalizationNode(Node):
         
         r = R.from_quat(quat)
         euler = r.as_euler('xyz') # roll, pitch, yaw
+
+        yaw_offset = np.pi / 2  
+        corrected_yaw = euler[2] + yaw_offset
+        corrected_yaw = (corrected_yaw + np.pi) % (2 * np.pi) - np.pi
+
         z = np.array([
             [pose.position.x],
             [pose.position.y],
             [pose.position.z],
-            [euler[0]], # roll
-            [euler[2]], # yaw (根據你的定義是在 index 4)
-            [euler[1]]  # pitch (根據你的定義是在 index 5)
+            [euler[0]],       # roll
+            [corrected_yaw],  # yaw
+            [euler[1]]        # pitch
         ])
         self.update(z)
 
