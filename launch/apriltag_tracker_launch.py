@@ -48,7 +48,7 @@ def generate_launch_description():
                          prefix=['gnome-terminal -- '])
 
      # ====================================================
-     # 把 camera_frame 綁定在 base_link 上面
+     # Bind camera_frame to base_link
      # ====================================================
      static_tf_node = Node(package='tf2_ros',
                            executable='static_transform_publisher',
@@ -65,13 +65,3 @@ def generate_launch_description():
                       arguments=['-d', rviz_config])
      
      return LaunchDescription([ekf_node, tello_node, control_node, apriltag_node, tag_tf_node, static_tf_node, rviz_node])
-
-# ====================================================
-# AprilTag Marker Visualization
-# ====================================================
-'''
-Node(package=package_name,
-     executable='apriltag_visualizer',
-     name='apriltag_visualizer',
-     output='screen'),
-'''
