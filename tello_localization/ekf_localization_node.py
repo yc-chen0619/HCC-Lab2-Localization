@@ -4,6 +4,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseArray
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav_msgs.msg import Path
 
 import tf2_ros
@@ -17,7 +18,7 @@ class EKFLocalizationNode(Node):
     def __init__(self):
         super().__init__('ekf_localization_node')
         self.subscription = self.create_subscription(PoseArray, '/apriltag/detections', self.detection_callback, 10)
-        self.pose_pub = self.create_publisher(PoseStamped, '/ekf_pose', 10)
+        self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
         self.path_pub = self.create_publisher(Path, '/ekf_path', 10)
 
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -137,24 +138,30 @@ class EKFLocalizationNode(Node):
         now = self.get_clock().now().to_msg()
 
         # 建立 PoseStamped 訊息
-        msg = PoseStamped()
+        msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = now
-        
         msg.pose.position.x = float(self.mu[0,0])
         msg.pose.position.y = float(self.mu[1,0])
         msg.pose.position.z = float(self.mu[2,0])
         # 將尤拉角轉回四元數發布
-        # 再次提醒：注意你的 index 4 是 yaw, 5 是 pitch
         q = R.from_euler('xyz', [self.mu[3,0], self.mu[5,0], self.mu[4,0]]).as_quat()
         msg.pose.orientation.x = q[0]
         msg.pose.orientation.y = q[1]
         msg.pose.orientation.z = q[2]
         msg.pose.orientation.w = q[3]
+        # 對調成 ROS 標準的 [x(0), y(1), z(2), roll(3), pitch(4), yaw(5)] 順序
+        idx_mapping = [0, 1, 2, 3, 5, 4]
+        ros_sigma = self.Sigma[np.ix_(idx_mapping, idx_mapping)]
+        msg.pose.covariance = ros_sigma.flatten().tolist()
         self.pose_pub.publish(msg)
         
         # Publish Path
-        self.path_msg.poses.append(msg)
+        path_pose = PoseStamped()
+        path_pose.header = msg.header
+        path_pose.pose = msg.pose.pose
+        self.path_msg.poses.append(path_pose)
+        self.path_msg.header.stamp = now
         self.path_pub.publish(self.path_msg)
 
         # Broadcast TF (map -> base_link)
