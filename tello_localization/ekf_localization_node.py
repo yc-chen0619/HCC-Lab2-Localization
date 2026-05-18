@@ -119,11 +119,6 @@ class EKFLocalizationNode(Node):
         
         r = R.from_quat(quat)
         euler = r.as_euler('xyz') # roll, pitch, yaw
-
-        yaw_offset = np.pi / 2  
-        corrected_yaw = euler[2] + yaw_offset
-        corrected_yaw = (corrected_yaw + np.pi) % (2 * np.pi) - np.pi
-
         z = np.array([
             [pose.position.x],
             [pose.position.y],
@@ -137,7 +132,7 @@ class EKFLocalizationNode(Node):
     def publish_pose(self):
         now = self.get_clock().now().to_msg()
 
-        # 建立 PoseStamped 訊息
+        # 建立帶有共變異數的 PoseWithCovarianceStamped 訊息
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = now
@@ -158,8 +153,15 @@ class EKFLocalizationNode(Node):
         
         # Publish Path
         path_pose = PoseStamped()
-        path_pose.header = msg.header
-        path_pose.pose = msg.pose.pose
+        path_pose.header.frame_id = 'map'
+        path_pose.header.stamp = now
+        path_pose.pose.position.x = float(self.mu[0,0])
+        path_pose.pose.position.y = float(self.mu[1,0])
+        path_pose.pose.position.z = float(self.mu[2,0])
+        path_pose.pose.orientation.x = q[0]
+        path_pose.pose.orientation.y = q[1]
+        path_pose.pose.orientation.z = q[2]
+        path_pose.pose.orientation.w = q[3]
         self.path_msg.poses.append(path_pose)
         self.path_msg.header.stamp = now
         self.path_pub.publish(self.path_msg)
@@ -172,7 +174,10 @@ class EKFLocalizationNode(Node):
         t.transform.translation.x = float(self.mu[0,0])
         t.transform.translation.y = float(self.mu[1,0])
         t.transform.translation.z = float(self.mu[2,0])
-        t.transform.rotation = msg.pose.orientation
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
         self.tf_broadcaster.sendTransform(t)
 
 def main(args=None):
