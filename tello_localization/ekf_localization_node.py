@@ -128,7 +128,7 @@ class EKFLocalizationNode(Node):
             [pose.position.y],
             [pose.position.z],
             [euler[0]],       # roll
-            [corrected_yaw],  # yaw
+            [euler[2]],       # yaw
             [euler[1]]        # pitch
         ])
         self.update(z)

@@ -24,7 +24,7 @@ def CameraIntrinsics():
     FY = 906.73
     CX = 470.05
     CY = 369.95
-    TagSize = 2.5
+    TagSize = 0.025 # m
     return FX, FY, CX, CY, TagSize
 
 
@@ -111,7 +111,16 @@ class AprilTagDetectorNode(Node):
                 continue 
 
             # 3. 核心修正：計算無人機(相機)在 Map 下的位置: T_w_c = T_w_t * inv(T_c_t)
-            T_w_c = T_w_t @ np.linalg.inv(T_c_t)
+            # 將 OpenCV 相機座標系 轉換為 ROS 標準座標系 (X朝前, Y朝左, Z朝上)
+            # 這樣箭頭方向就會完全轉正，不需要去 EKF 節點硬塞 90 度了！
+            T_w_c_opencv = T_w_t @ np.linalg.inv(T_c_t)
+            R_cv_to_ros = np.array([
+                [0,  0,  1,  0],  # ROS的X 是 CV的Z (朝前)
+                [-1, 0,  0,  0],  # ROS的Y 是 CV的-X (朝左)
+                [0, -1,  0,  0],  # ROS的Z 是 CV的-Y (朝上)
+                [0,  0,  0,  1]
+            ])
+            T_w_c = T_w_c_opencv @ R_cv_to_ros
 
             # 4. 建立 Pose，這才是「無人機」的真實世界位置
             pose = Pose()
@@ -131,10 +140,18 @@ class AprilTagDetectorNode(Node):
             marker = Marker()
             marker.header.frame_id = 'map'
             marker.header.stamp = self.get_clock().now().to_msg()
-            marker.id = idx
+            marker.id = int(tag.tag_id)
             marker.type = Marker.CUBE
             marker.action = Marker.ADD
-            marker.pose = pose # 使用轉換過後的正確 Pose
+            # 填入 Tag 的絕對位置與姿態
+            marker.pose.position.x = float(T_w_t[0, 3])
+            marker.pose.position.y = float(T_w_t[1, 3])
+            marker.pose.position.z = float(T_w_t[2, 3])
+            q_tag = R.from_matrix(T_w_t[:3, :3]).as_quat()
+            marker.pose.orientation.x = q_tag[0]
+            marker.pose.orientation.y = q_tag[1]
+            marker.pose.orientation.z = q_tag[2]
+            marker.pose.orientation.w = q_tag[3]
             marker.scale.x = 0.16
             marker.scale.y = 0.16
             marker.scale.z = 0.01
