@@ -115,9 +115,9 @@ class AprilTagDetectorNode(Node):
             # 這樣箭頭方向就會完全轉正，不需要去 EKF 節點硬塞 90 度了！
             T_w_c_opencv = T_w_t @ np.linalg.inv(T_c_t)
             R_cv_to_ros = np.array([
-                [0,  0,  1,  0],  # ROS的X 是 CV的Z (朝前)
-                [-1, 0,  0,  0],  # ROS的Y 是 CV的-X (朝左)
-                [0, -1,  0,  0],  # ROS的Z 是 CV的-Y (朝上)
+                [0, -1,  0,  0],  # 第一列：ROS 的 X 是 CV 的  Z (朝前)
+                [0,  0, -1,  0],  # 第二列：ROS 的 Y 是 CV 的 -X (朝左)
+                [1,  0,  0,  0],  # 第三列：ROS 的 Z 是 CV 的 -Y (朝上)
                 [0,  0,  0,  1]
             ])
             T_w_c = T_w_c_opencv @ R_cv_to_ros
