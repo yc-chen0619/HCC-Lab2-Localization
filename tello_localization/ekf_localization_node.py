@@ -136,15 +136,15 @@ class EKFLocalizationNode(Node):
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
         msg.header.stamp = now
-        msg.pose.position.x = float(self.mu[0,0])
-        msg.pose.position.y = float(self.mu[1,0])
-        msg.pose.position.z = float(self.mu[2,0])
+        msg.pose.pose.position.x = float(self.mu[0,0])
+        msg.pose.pose.position.y = float(self.mu[1,0])
+        msg.pose.pose.position.z = float(self.mu[2,0])
         # 將尤拉角轉回四元數發布
-        q = R.from_euler('xyz', [self.mu[3,0], self.mu[5,0], self.mu[4,0]]).as_quat()
-        msg.pose.orientation.x = q[0]
-        msg.pose.orientation.y = q[1]
-        msg.pose.orientation.z = q[2]
-        msg.pose.orientation.w = q[3]
+        q = R.from_euler('xyz', [self.mu[3,0], self.mu[5,0], self.mu[4,0]]).as_quat().tolist()
+        msg.pose.pose.orientation.x = q[0]
+        msg.pose.pose.orientation.y = q[1]
+        msg.pose.pose.orientation.z = q[2]
+        msg.pose.pose.orientation.w = q[3]
         # 對調成 ROS 標準的 [x(0), y(1), z(2), roll(3), pitch(4), yaw(5)] 順序
         idx_mapping = [0, 1, 2, 3, 5, 4]
         ros_sigma = self.Sigma[np.ix_(idx_mapping, idx_mapping)]
