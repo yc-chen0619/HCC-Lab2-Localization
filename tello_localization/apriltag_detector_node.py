@@ -36,7 +36,6 @@ class AprilTagDetectorNode(Node):
         self.subscription = self.create_subscription(Image, '/image_raw', self.image_callback, 10)
         self.pose_pub = self.create_publisher(PoseArray, '/apriltag/detections', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/apriltag/markers', 10)
-
         self.detector = Detector(families='tag36h11', 
                                  nthreads=1, 
                                  quad_decimate=1.0, 
@@ -54,23 +53,17 @@ class AprilTagDetectorNode(Node):
         self.tag_size = camera_intrinsic[4]
         self.camera_params = [self.fx, self.fy, self.cx, self.cy]
 
-        # 讀取 Tag Map YAML 檔
         package_share = get_package_share_directory('tello_localization')
         yaml_path = os.path.join(package_share, 'map', 'apriltag_map.yaml')
         try:
             with open(yaml_path, 'r') as f:
-                # 1. YAML 的 key 是 'tags'，而且它是一個 List
                 yaml_data = yaml.safe_load(f)['tags']
-                # 2. 將 List 轉成以 tag_id 為 key 的 Dictionary，方便後續搜尋
                 self.tag_pose_dict = {tag['id']: tag for tag in yaml_data}
         except Exception as e:
             self.get_logger().error(f"Failed to load yaml: {e}")
             self.tag_pose_dict = {}
 
     def get_tag_world_pose(self, tag_id):
-        """
-        Returns a 4x4 transformation matrix T_tag_in_world from YAML.
-        """
         tag = self.tag_pose_dict.get(tag_id)
         if tag is None:
             self.get_logger().warn(f"No world pose defined for tag ID {tag_id}")
@@ -79,7 +72,6 @@ class AprilTagDetectorNode(Node):
         pos = tag['position']
         rpy = tag['orientation_rpy']
         rot = R.from_euler('xyz', rpy).as_matrix()
-
         T = np.eye(4)
         T[:3, :3] = rot
         T[:3, 3] = pos
@@ -99,35 +91,32 @@ class AprilTagDetectorNode(Node):
         marker_array = MarkerArray()
 
         for idx, tag in enumerate(tags):
-            # 1. 取得 Tag 在相機座標系的變換矩陣 T_c_t (T_camera_tag)
+            # T_c_t (T_camera_tag)
             T_c_t = np.eye(4)
             T_c_t[:3, :3] = tag.pose_R
             T_c_t[:3, 3] = tag.pose_t.flatten()
 
-            # 2. 從你寫好的 function 取得該 Tag 在 Map 下的絕對座標 T_w_t (T_world_tag)
+            # T_w_t (T_world_tag)
             T_w_t = self.get_tag_world_pose(tag.tag_id)
             if T_w_t is None:
-                # 如果讀到不在 yaml 裡的 tag，就跳過不處理
                 continue 
 
-            # 3. 核心修正：計算無人機(相機)在 Map 下的位置: T_w_c = T_w_t * inv(T_c_t)
-            # 將 OpenCV 相機座標系 轉換為 ROS 標準座標系 (X朝前, Y朝左, Z朝上)
-            # 這樣箭頭方向就會完全轉正，不需要去 EKF 節點硬塞 90 度了！
+            # OpenCV-coordinates transformed to ROS-coordinates (X-forward, Y-left, Z-up)
+            # T_w_c (T_world_camera)
             T_w_c_opencv = T_w_t @ np.linalg.inv(T_c_t)
             R_cv_to_ros = np.array([
-                [0, -1,  0,  0],  # 第一列：ROS 的 X 是 CV 的  Z (朝前)
-                [0,  0, -1,  0],  # 第二列：ROS 的 Y 是 CV 的 -X (朝左)
-                [1,  0,  0,  0],  # 第三列：ROS 的 Z 是 CV 的 -Y (朝上)
+                [0, -1,  0,  0],
+                [0,  0, -1,  0],
+                [1,  0,  0,  0],
                 [0,  0,  0,  1]
             ])
             T_w_c = T_w_c_opencv @ R_cv_to_ros
 
-            # 4. 建立 Pose，這才是「無人機」的真實世界位置
+            # Camera in World
             pose = Pose()
             pose.position.x = float(T_w_c[0, 3])
             pose.position.y = float(T_w_c[1, 3])
             pose.position.z = float(T_w_c[2, 3])
-            # 將旋轉矩陣轉為四元數
             q = R.from_matrix(T_w_c[:3, :3]).as_quat()
             pose.orientation.x = q[0]
             pose.orientation.y = q[1]
@@ -136,14 +125,13 @@ class AprilTagDetectorNode(Node):
             pose_array.poses.append(pose)
 
 
-            # 5. Marker 也要用更新後的無人機 pose 來顯示
+            # AprilTag in World
             marker = Marker()
             marker.header.frame_id = 'map'
             marker.header.stamp = self.get_clock().now().to_msg()
             marker.id = int(tag.tag_id)
             marker.type = Marker.CUBE
             marker.action = Marker.ADD
-            # 填入 Tag 的絕對位置與姿態
             marker.pose.position.x = float(T_w_t[0, 3])
             marker.pose.position.y = float(T_w_t[1, 3])
             marker.pose.position.z = float(T_w_t[2, 3]) + 0.001

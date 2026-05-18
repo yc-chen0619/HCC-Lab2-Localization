@@ -14,7 +14,6 @@ class TagTFBroadcaster(Node):
         super().__init__('tag_tf_broadcaster')
         self.broadcaster = StaticTransformBroadcaster(self)
         
-        # 修正為正確的 package_name 和路徑
         package_share = get_package_share_directory('tello_localization')
         yaml_path = os.path.join(package_share, 'map', 'apriltag_map.yaml')
         with open(yaml_path, 'r') as f:
@@ -32,7 +31,6 @@ class TagTFBroadcaster(Node):
             t.transform.translation.z = float(tag['position'][2])
 
             q = R.from_euler('xyz', tag['orientation_rpy']).as_quat()
-
             t.transform.rotation.x = q[0]
             t.transform.rotation.y = q[1]
             t.transform.rotation.z = q[2]
@@ -50,21 +48,15 @@ class RobotTFBroadcaster:
         self.br = TransformBroadcaster(node)
 
     def send(self, mu):
-
         t = TransformStamped()
-
         t.header.stamp = self.node.get_clock().now().to_msg()
-
         t.header.frame_id = 'map'
-
         t.child_frame_id = 'base_link'
-
         t.transform.translation.x = float(mu[0])
         t.transform.translation.y = float(mu[1])
         t.transform.translation.z = float(mu[2])
 
         q = R.from_euler('xyz', [mu[3], mu[5], mu[4]]).as_quat()
-
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]

@@ -28,6 +28,7 @@ setup(
             'apriltag_detector_node = tello_localization.apriltag_detector_node:main',
             'ekf_localization_node = tello_localization.ekf_localization_node:main',
             'tag_tf_broadcaster = tello_localization.tag_tf_broadcaster:main',
+            'control_tello_ekf = tello_localization.control_tello_ekf:main',
             #'apriltag_visualizer = tello_localization.apriltag_visualizer:main',
         ],
     },

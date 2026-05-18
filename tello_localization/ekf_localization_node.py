@@ -5,6 +5,7 @@ from geometry_msgs.msg import PoseArray
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import Twist
 from nav_msgs.msg import Path
 
 import tf2_ros
@@ -18,6 +19,7 @@ class EKFLocalizationNode(Node):
     def __init__(self):
         super().__init__('ekf_localization_node')
         self.subscription = self.create_subscription(PoseArray, '/apriltag/detections', self.detection_callback, 10)
+        self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_callback, 10)
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
         self.path_pub = self.create_publisher(Path, '/ekf_path', 10)
 
@@ -25,18 +27,20 @@ class EKFLocalizationNode(Node):
         self.path_msg = Path()
         self.path_msg.header.frame_id = 'map'
 
-        self.dt = 0.1
         self.mu = np.zeros((6,1))
         self.Sigma = np.eye(6) * 0.1
+        self.u = np.zeros((6,1))
         # [x, y, z, roll, yaw, pitch]
-        self.Rm = np.diag([0.05, 0.05, 0.05, 0.02, 0.02, 0.02])
+        self.Rm = np.diag([0.10, 0.10, 0.10, 0.05, 0.05, 0.05])
         # [x, y, z, roll, yaw, pitch]
-        self.Q = np.diag([0.03, 0.03, 0.03, 0.05, 0.05, 0.05])
+        self.Q = np.diag([0.01, 0.01, 0.01, 0.03, 0.03, 0.03])
 
-        self.timer = self.create_timer(self.dt, self.predict_timer)
+        self.dt = 0.1
+        self.last_time = self.get_clock().now()
+        self.timer = self.create_timer(0.1, self.predict_timer)
 
     # state : [x, y, z, roll, yaw, pitch]
-    # control : [v, roll_rate, yaw_rate, pitch_rate]
+    # control : [v_x, v_y, v_z, roll_rate, yaw_rate, pitch_rate]
     def motion_model(self, x, u):
         dt = self.dt
 
@@ -47,47 +51,42 @@ class EKFLocalizationNode(Node):
         yaw = x[4,0]
         pitch = x[5,0]
 
-        v = u[0,0]
-        roll_rate = u[1,0]
-        yaw_rate = u[2,0]
-        pitch_rate = u[3,0]
+        vx = u[0,0]
+        vy = u[1,0]
+        vz = u[2,0]
+        roll_rate = u[3,0]
+        yaw_rate = u[4,0]
+        pitch_rate = u[5,0]
 
         x_pred = np.zeros((6,1))
-        x_pred[0,0] = px + v*np.cos(yaw)*np.cos(pitch)*dt
-        x_pred[1,0] = py + v*np.sin(yaw)*np.cos(pitch)*dt
-        x_pred[2,0] = pz + v*np.sin(pitch)*dt
-        x_pred[3,0] = roll + roll_rate*dt
-        x_pred[4,0] = yaw + yaw_rate*dt
-        x_pred[5,0] = pitch + pitch_rate*dt
+        x_pred[0,0] = px + (vx * np.cos(yaw) - vy * np.sin(yaw)) * dt
+        x_pred[1,0] = py + (vx * np.sin(yaw) + vy * np.cos(yaw)) * dt
+        x_pred[2,0] = pz + vz * dt
+        x_pred[3,0] = roll + roll_rate * dt
+        x_pred[4,0] = yaw + yaw_rate * dt
+        x_pred[5,0] = pitch + pitch_rate * dt
         return x_pred
 
     def jacobian_F(self, x, u):
         dt = self.dt
-
         yaw = x[4,0]
-        pitch = x[5,0]
-
-        v = u[0,0]
+        vx = u[0,0]
+        vy = u[1,0]
 
         F = np.eye(6)
-        F[0,4] = -v * np.sin(yaw) * np.cos(pitch) * dt
-        F[0,5] = -v * np.cos(yaw) * np.sin(pitch) * dt
-        F[1,4] =  v * np.cos(yaw) * np.cos(pitch) * dt
-        F[1,5] = -v * np.sin(yaw) * np.sin(pitch) * dt
-        F[2,5] =  v * np.cos(pitch) * dt
+        F[0,4] = (-vx * np.sin(yaw) - vy * np.cos(yaw)) * dt
+        F[1,4] = ( vx * np.cos(yaw) - vy * np.sin(yaw)) * dt
         return F
     
     def predict(self, u):
-        self.mu = self.motion_model(self.mu, u)
         F = self.jacobian_F(self.mu, u)
+        self.mu = self.motion_model(self.mu, u)
         self.Sigma = F @ self.Sigma @ F.T + self.Rm
 
     def update(self, z):
         H = np.eye(6)
         z_pred = self.mu
         y = z - z_pred
-
-        # 解決角度 wrapping (例如 359度 - 1度 應該是 -2度 而不是 358度)
         y[3,0] = (y[3,0] + np.pi) % (2 * np.pi) - np.pi
         y[4,0] = (y[4,0] + np.pi) % (2 * np.pi) - np.pi
         y[5,0] = (y[5,0] + np.pi) % (2 * np.pi) - np.pi
@@ -99,13 +98,23 @@ class EKFLocalizationNode(Node):
         self.Sigma = (I - K @ H) @ self.Sigma
 
     def predict_timer(self):
+        now = self.get_clock().now()
+        dt_duration = now - self.last_time
+        
+        self.dt = dt_duration.nanoseconds / 1e9 
+        self.last_time = now
 
-        # fake control input
-        #u = np.array([0.1, 0.0, 0.01, 0.0]).reshape(4,1)
-        u = np.array([0.0, 0.0, 0.0, 0.0]).reshape(4,1)
-        self.predict(u)
-
+        if self.dt > 0.0 and self.dt < 1.0:
+            self.predict(self.u)
         self.publish_pose()
+
+    def cmd_callback(self, msg):
+        self.u[0, 0] = msg.linear.x    # vx
+        self.u[1, 0] = msg.linear.y    # vy
+        self.u[2, 0] = msg.linear.z    # vz
+        self.u[3, 0] = msg.angular.x   # roll_rate
+        self.u[4, 0] = msg.angular.z   # yaw_rate
+        self.u[5, 0] = msg.angular.y   # pitch_rate
 
     def detection_callback(self, msg):
         if len(msg.poses) == 0:
@@ -123,9 +132,9 @@ class EKFLocalizationNode(Node):
             [pose.position.x],
             [pose.position.y],
             [pose.position.z],
-            [euler[0]],       # roll
-            [euler[2]],       # yaw
-            [euler[1]]        # pitch
+            [euler[0]],
+            [euler[2]],
+            [euler[1]]
         ])
         self.update(z)
 
