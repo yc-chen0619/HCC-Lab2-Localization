@@ -24,7 +24,7 @@ def CameraIntrinsics():
     FY = 906.73
     CX = 470.05
     CY = 369.95
-    TagSize = 0.025 # m
+    TagSize = 0.20 # m
     return FX, FY, CX, CY, TagSize
 
 
@@ -146,14 +146,14 @@ class AprilTagDetectorNode(Node):
             # 填入 Tag 的絕對位置與姿態
             marker.pose.position.x = float(T_w_t[0, 3])
             marker.pose.position.y = float(T_w_t[1, 3])
-            marker.pose.position.z = float(T_w_t[2, 3])
+            marker.pose.position.z = float(T_w_t[2, 3]) + 0.001
             q_tag = R.from_matrix(T_w_t[:3, :3]).as_quat()
             marker.pose.orientation.x = q_tag[0]
             marker.pose.orientation.y = q_tag[1]
             marker.pose.orientation.z = q_tag[2]
             marker.pose.orientation.w = q_tag[3]
-            marker.scale.x = 0.16
-            marker.scale.y = 0.16
+            marker.scale.x = self.tag_size
+            marker.scale.y = self.tag_size
             marker.scale.z = 0.01
             marker.color.a = 1.0
             marker.color.r = 0.0
