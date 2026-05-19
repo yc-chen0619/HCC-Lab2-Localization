@@ -6,10 +6,12 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import Twist
+from tello_msgs.msg import FlightData
 from nav_msgs.msg import Path
 
 import tf2_ros
 import numpy as np
+import math
 
 from scipy.spatial.transform import Rotation as R
 
@@ -19,7 +21,8 @@ class EKFLocalizationNode(Node):
     def __init__(self):
         super().__init__('ekf_localization_node')
         self.subscription = self.create_subscription(PoseArray, '/apriltag/detections', self.detection_callback, 10)
-        self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_callback, 10)
+        #self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_callback, 10)
+        self.flight_sub = self.create_subscription(FlightData, '/flight_data', self.flight_data_callback, 10)
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
         self.path_pub = self.create_publisher(Path, '/ekf_path', 10)
 
@@ -31,13 +34,19 @@ class EKFLocalizationNode(Node):
         self.Sigma = np.eye(6) * 0.1
         self.u = np.zeros((6,1))
         # [x, y, z, roll, yaw, pitch]
-        self.Rm = np.diag([0.10, 0.10, 0.10, 0.05, 0.05, 0.05])
+        self.Rm = np.diag([0.001, 0.001, 0.005, 0.01, 0.01, 0.01])
         # [x, y, z, roll, yaw, pitch]
-        self.Q = np.diag([0.01, 0.01, 0.01, 0.03, 0.03, 0.03])
+        self.Q = np.diag([0.05, 0.05, 0.05, 0.02, 0.02, 0.02])
 
         self.dt = 0.1
         self.last_time = self.get_clock().now()
         self.timer = self.create_timer(0.1, self.predict_timer)
+
+        # intial tello control
+        self.last_flight_time = None
+        self.last_roll = 0.0
+        self.last_pitch = 0.0
+        self.last_yaw = 0.0
 
     # state : [x, y, z, roll, yaw, pitch]
     # control : [v_x, v_y, v_z, roll_rate, yaw_rate, pitch_rate]
@@ -115,6 +124,37 @@ class EKFLocalizationNode(Node):
         self.u[3, 0] = msg.angular.x   # roll_rate
         self.u[4, 0] = msg.angular.z   # yaw_rate
         self.u[5, 0] = msg.angular.y   # pitch_rate
+    
+    def flight_data_callback(self, msg):
+        # (cm/s) -> (m/s)、FRD frame -> FLU frame
+        vx = msg.vgx / 100.0
+        vy = -msg.vgy / 100.0  # Tello 右為正 -> ROS 左為正
+        vz = -msg.vgz / 100.0  # Tello 下為正 -> ROS 上為正
+        # Degree -> Radian
+        now = self.get_clock().now()
+        roll_rad = math.radians(msg.roll)
+        pitch_rad = math.radians(msg.pitch)
+        yaw_rad = math.radians(msg.yaw)
+
+        self.u[0, 0] = vx
+        self.u[1, 0] = vy
+        self.u[2, 0] = vz
+        if self.last_flight_time is not None:
+            dt = (now - self.last_flight_time).nanoseconds / 1e9
+            if dt > 0.001:
+                d_roll = (roll_rad - self.last_roll + math.pi) % (2 * math.pi) - math.pi
+                d_pitch = (pitch_rad - self.last_pitch + math.pi) % (2 * math.pi) - math.pi
+                d_yaw = (yaw_rad - self.last_yaw + math.pi) % (2 * math.pi) - math.pi
+
+                # w = dA / dt
+                self.u[3, 0] = d_roll / dt
+                self.u[4, 0] = d_yaw / dt
+                self.u[5, 0] = d_pitch / dt
+
+        self.last_flight_time = now
+        self.last_roll = roll_rad
+        self.last_pitch = pitch_rad
+        self.last_yaw = yaw_rad
 
     def detection_callback(self, msg):
         if len(msg.poses) == 0:
