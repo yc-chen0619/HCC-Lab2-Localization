@@ -36,7 +36,7 @@ def generate_launch_description():
      # Tello Control & EKF input (using prefix to open new terminal)
      # ====================================================
      tello_node = Node(package='tello_driver',
-                       executable='tello_driver_main',  # tello_driver 通常的執行檔名稱是這個
+                       executable='tello_driver_main',
                        name='tello_driver',
                        output='screen',
                        remappings=[('/tello/cmd_vel', '/cmd_vel')])  # 關鍵：把 Tello 預設的 /tello/cmd_vel 對齊到全域的 /cmd_vel
@@ -44,8 +44,7 @@ def generate_launch_description():
      control_node = Node(package=package_name,
                          executable='control_tello_ekf',
                          name='control_tello_ekf',
-                         output='screen',
-                         prefix=['gnome-terminal -- '])
+                         output='screen')
 
      # ====================================================
      # Bind camera_frame to base_link

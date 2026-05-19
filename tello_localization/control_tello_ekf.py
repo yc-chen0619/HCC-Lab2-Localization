@@ -2,57 +2,104 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
+import pygame
 import sys
-import select
-import termios
-import tty
 
-msg = """
------------------------------------------
-Tello & EKF 鍵盤控制節點 (GTA 5 飛行設置)
------------------------------------------
-左手區 (WASD) - 基礎起降與水平轉向：
-    w / s : 上升 / 下降 (v_z / linear.z)
-    a / d : 左轉 / 右轉 (yaw_rate / angular.z)
-
-右手區 (右側數字鍵 8456) - 姿態與推力推進：
-    8 / 5 : 前進 / 後退 (v_x / linear.x) [連動 pitch_rate 壓/拉機頭]
-    4 / 6 : 左翻滾 / 右翻滾 (roll_rate / angular.x)
-
-空白鍵 (Space) : 全部速度與姿態歸零 (緊急煞車懸停)
-CTRL+C : 退出
------------------------------------------
-提示：請確保鍵盤的 Num Lock 已開啟！
------------------------------------------
-"""
-
-# 設定鍵盤控制單次變動步長
-SPEED_STEP = 0.2
-ANGLE_STEP = 0.2
-
-def get_key(settings):
-    tty.setraw(sys.stdin.fileno())
-    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-    if rlist:
-        key = sys.stdin.read(1)
-    else:
-        key = ''
-    termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, settings)
-    return key
-
-class TeleopTelloEKF(Node):
+class ControlTelloEKF(Node):
     def __init__(self):
-        super().__init__('teleop_tello_ekf')
+        super().__init__('control_tello_ekf')
         self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
-        # initial control signal
+        
+        pygame.init()
+        self.screen = pygame.display.set_mode((480, 350))
+        pygame.display.set_caption('Tello & EKF Controller (GTA 5 Mode)')
+        self.font = pygame.font.SysFont(None, 24)
+        
+        # initial control signals (6 DoF)
         self.v_x = 0.0
         self.v_y = 0.0
         self.v_z = 0.0
-        self.roll_rate = 0.0
+        self.roll_rate  = 0.0
         self.pitch_rate = 0.0
-        self.yaw_rate = 0.0
+        self.yaw_rate   = 0.0
 
-    def publish_cmd(self):
+        self.speed_step = 0.2
+        self.angle_step = 0.2
+
+        # scanning in 20Hz
+        self.timer = self.create_timer(0.05, self.timer_callback)
+
+    def timer_callback(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+                
+            elif event.type == pygame.KEYDOWN:
+                # Left hand (WASD)
+                if event.key == pygame.K_w: self.v_z = self.speed_step
+                elif event.key == pygame.K_s: self.v_z = -self.speed_step
+                elif event.key == pygame.K_a: self.yaw_rate = self.angle_step
+                elif event.key == pygame.K_d: self.yaw_rate = -self.angle_step
+                
+                # Right hand (支援右側數字鍵盤 K_KPx 以及上方數字鍵 K_x)
+                elif event.key in [pygame.K_KP8, pygame.K_8]: 
+                    self.v_x = self.speed_step
+                    self.pitch_rate = self.angle_step
+                elif event.key in [pygame.K_KP5, pygame.K_5]: 
+                    self.v_x = -self.speed_step
+                    self.pitch_rate = -self.angle_step
+                elif event.key in [pygame.K_KP4, pygame.K_4]: 
+                    self.v_y = self.speed_step
+                    self.roll_rate = self.angle_step
+                elif event.key in [pygame.K_KP6, pygame.K_6]: 
+                    self.v_y = -self.speed_step
+                    self.roll_rate = -self.angle_step
+                    
+                # Stop function keys
+                elif event.key == pygame.K_SPACE: 
+                    self.v_x = self.v_y = self.v_z = 0.0
+                    self.roll_rate = self.pitch_rate = self.yaw_rate = 0.0
+                    
+            elif event.type == pygame.KEYUP:
+                if event.key in [pygame.K_w, pygame.K_s]: self.v_z = 0.0
+                elif event.key in [pygame.K_a, pygame.K_d]: self.yaw_rate = 0.0
+                elif event.key in [pygame.K_KP8, pygame.K_8, pygame.K_KP5, pygame.K_5]: 
+                    self.v_x = 0.0
+                    self.pitch_rate = 0.0
+                elif event.key in [pygame.K_KP4, pygame.K_4, pygame.K_KP6, pygame.K_6]: 
+                    self.v_y = 0.0
+                    self.roll_rate = 0.0
+
+        # --- 4. 更新 Pygame 視窗顯示面板 ---
+        self.screen.fill((40, 44, 52)) # 深色背景
+        info_text = [
+            " [ Tello EKF Controller : GTA 5 Mode ]",
+            " * Keep this window focused to control *",
+            " --- Left Hand (WASD) ---",
+            f"   v_z (w/s) : {self.v_z:.2f}",
+            f"   yaw_rate (a/d) : {self.yaw_rate:.2f}",
+            " --- Right Hand (8/4/5/6) ---",
+            f"   v_x & pitch_rate (8/5) : {self.v_x:.2f} , {self.pitch_rate:.2f}",
+            f"   v_y & roll_rate (4/6) : {self.v_y:.2f} , {self.roll_rate:.2f}",
+            "",
+            " Press SPACE to STOP ALL"
+        ]
+        
+        y_offset = 15
+        for line in info_text:
+            text_surface = self.font.render(line, True, (220, 220, 220))
+            self.screen.blit(text_surface, (20, y_offset))
+            y_offset += 28
+        pygame.display.flip()
+
+
+        velocity_print = "\rinput control = [vx:{self.v_x:.2f}, vy:{self.v_y:.2f}, vz:{self.v_z:.2f}, "
+        ryp_rate_print = f"roll:{self.roll_rate:.2f}, pitch:{self.pitch_rate:.2f}, yaw:{self.yaw_rate:.2f}]"
+        sys.stdout.write(velocity_print + ryp_rate_print)
+        sys.stdout.flush()
+
+        # publish control to Tello
         twist = Twist()
         twist.linear.x = float(self.v_x)
         twist.linear.y = float(self.v_y)
@@ -61,66 +108,19 @@ class TeleopTelloEKF(Node):
         twist.angular.y = float(self.pitch_rate)
         twist.angular.z = float(self.yaw_rate)
         self.publisher_.publish(twist)
-        
-        # 顯示當前發出的控制向量 u
-        sys.stdout.write(f"\rinput control = [vx: {self.v_x:.2f}, vy: {self.v_y:.2f}, vz: {self.v_z:.2f}, " \
-                          "roll_rate: {self.roll_rate:.2f}, pitch_rate: {self.pitch_rate:.2f}, yaw_rate: {self.yaw_rate:.2f}]")
-        sys.stdout.flush()
 
 def main(args=None):
-    settings = termios.tcgetattr(sys.stdin)
     rclpy.init(args=args)
-    node = TeleopTelloEKF()
-
-    print(msg)
+    node = ControlTelloEKF()
 
     try:
-        while rclpy.ok():
-            key = get_key(settings)
-            # --- Special function keys ---
-            if key == ' ':            # stop keys
-                node.v_x = 0.0
-                node.v_y = 0.0
-                node.v_z = 0.0
-                node.yaw_rate = 0.0
-                node.roll_rate = 0.0
-                node.pitch_rate = 0.0
-            if key == '\x03':         # CTRL+C
-                break
-
-            # --- Left hand = WASD ---
-            if key == 'w':
-                node.v_z += SPEED_STEP
-            elif key == 's':
-                node.v_z -= SPEED_STEP
-            elif key == 'a':
-                node.yaw_rate += ANGLE_STEP
-            elif key == 'd':
-                node.yaw_rate -= ANGLE_STEP
-            # --- Right hand = 8456 ---
-            elif key == '8':
-                node.v_x += SPEED_STEP
-                node.pitch_rate += ANGLE_STEP
-            elif key == '5':
-                node.v_x -= SPEED_STEP
-                node.pitch_rate -= ANGLE_STEP
-            elif key == '4':
-                node.v_y += SPEED_STEP
-                node.roll_rate += ANGLE_STEP
-            elif key == '6':
-                node.v_y -= SPEED_STEP
-                node.roll_rate -= ANGLE_STEP
-            
-            node.publish_cmd()
-            rclpy.spin_once(node, timeout_sec=0.05)
-
-    except Exception as e:
-        print(e)
-
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         twist = Twist()
         node.publisher_.publish(twist)
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, settings)
+        pygame.quit()
         node.destroy_node()
         rclpy.shutdown()
 
