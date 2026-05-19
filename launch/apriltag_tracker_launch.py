@@ -38,8 +38,7 @@ def generate_launch_description():
      tello_node = Node(package='tello_driver',
                        executable='tello_driver_main',
                        name='tello_driver',
-                       output='screen',
-                       remappings=[('/tello/cmd_vel', '/cmd_vel')])  # 關鍵：把 Tello 預設的 /tello/cmd_vel 對齊到全域的 /cmd_vel
+                       output='screen')
 
      control_node = Node(package=package_name,
                          executable='control_tello_ekf',
